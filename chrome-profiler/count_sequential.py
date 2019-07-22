@@ -1,0 +1,108 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from itertools import cycle, islice
+
+weekMap = {0:'Mon', 1:'Tue', 2:'Wed', 3:'Thu', 4:'Fri', 5:'Sat', 6:'Sun'}
+
+def toNumToDateStr(num):
+    from datetime import datetime, timedelta
+    #Google Chromeのタイムスタンプは、通常のUNIXタイムではなく、1601年1月1日0:00からの”マイクロ秒”となっている点に注意
+    num = ((num / 1000000) - 11644473600 + (9*60*60)) / 86400 + 25569
+    ret = datetime(1899, 12, 30) + timedelta(days=num)
+    return ret.strftime('%Y-%m-%d')
+
+def dateToStr(d):
+    from datetime import datetime as dt
+    return dt.strftime(d, '%Y-%m-%d')
+
+def strToDate(s):
+    from datetime import datetime as dt
+    return dt.strptime(s, '%Y-%m-%d')
+
+def daterange(_start, _end):
+  from datetime import datetime, timedelta
+  for n in range((_end - _start).days):
+    yield _start + timedelta(n)
+
+def getWeekFromDateSre(s):
+    from datetime import datetime as dt
+    return weekMap[dt.strptime(s, '%Y-%m-%d').weekday()]
+
+# system parameter
+fig_dir = './fig'
+csv_dir = './csv'
+pdf_dir = './pdf'
+
+# database
+dbname = 'History'
+historiy_url = pd.read_csv(f'{csv_dir}/history_devpc_urls.csv')
+
+# get access date (without time)
+historiy_url = historiy_url['last_visit_time']
+# aggregate based on date
+historiy_url = historiy_url.map(toNumToDateStr).value_counts().sort_index(ascending=True).reset_index()
+
+# set range 
+start_date = strToDate(historiy_url.loc[0, 'index'])
+end_data = strToDate(historiy_url.iloc[-1, historiy_url.columns.get_loc('index')])
+target_duration = [dateToStr(i) for i in daterange(start_date, end_data)]
+target_duration = pd.DataFrame(target_duration, columns=['index'])
+
+historiy_url = pd.merge(historiy_url, target_duration, on='index', how='outer').sort_values(by=['index'])
+historiy_url_week = historiy_url['index'].apply(getWeekFromDateSre).rename('week')
+historiy_url = pd.concat([historiy_url,historiy_url_week],axis=1).fillna(0).rename(columns={'index':'date'})
+
+for k, v in weekMap.items():
+    temp = historiy_url['last_visit_time'].where(historiy_url['week'] == v).rename(f'visit_{v.lower()}')
+    historiy_url = pd.concat([historiy_url, temp], axis=1)
+
+historiy_url = historiy_url.fillna(0)
+week_summary = historiy_url.drop(['date', 'last_visit_time', 'week'], axis=1)
+week_colors=['#F5F5F5', '#F5F5F5', '#F5F5F5', '#F5F5F5', '#F5F5F5', '#87cefa', '#cd5c5c']
+
+ticks=4
+x = list(historiy_url['date'])
+y = list(historiy_url['last_visit_time'])
+
+# each weekday
+for i in range(0, 5):
+    fig = plt.subplot()
+    # all days
+    fig.plot(x, y, label='all day', marker='*', linestyle='--')
+    # each days
+    week_colors[i] = '#2756b3'
+    week_summary.plot(kind='bar', ax=fig, width=0.3, align='center', stacked=True, color=week_colors)
+
+    plt.xticks(range(0, len(x), ticks), x[::ticks], rotation=70)
+    plt.xlabel('Date')
+    plt.ylabel('Count of Searcing by Chrome')
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0, fontsize=10)
+    plt.savefig(f'{fig_dir}/keywords_search_sequential_{weekMap[i].lower()}.png', bbox_inches="tight")
+    plt.savefig(f'{pdf_dir}/keywords_search_sequential_{weekMap[i].lower()}.pdf', bbox_inches="tight")
+    plt.clf()
+    # reset color
+    week_colors[i] = '#F5F5F5'
+
+# plotting
+historiy_sum_weekday = historiy_url.loc[:, 'visit_mon':].sum().drop(['visit_sat','visit_sun']).rename('sum')
+historiy_cnt_weekday = historiy_url.groupby('week').count().loc[:,'date'].rename('week_count').drop(['Sat', 'Sun'])
+historiy_cnt_weekday = historiy_cnt_weekday.rename(index={k:f'visit_{k.lower()}' for k in historiy_cnt_weekday.index})
+
+historiy_sum_weekday = pd.concat([historiy_sum_weekday, historiy_cnt_weekday], axis=1)
+historiy_sum_weekday = pd.concat([historiy_sum_weekday, (historiy_sum_weekday['sum'] / historiy_sum_weekday['week_count']).rename('avg')], axis=1)
+historiy_sum_weekday_plt = historiy_sum_weekday.loc[['visit_mon', 'visit_tue', 'visit_wed', 'visit_thu', 'visit_fri'], :]
+
+historiy_sum_weekday_plt.loc[:, 'sum'].plot(kind='bar', rot=45, color='#575757')
+plt.xlabel('Week Day')
+plt.ylabel('Count of Searcing by Chrome')
+plt.savefig(f'{fig_dir}/keywords_search_weekday_sum.png', bbox_inches="tight")
+plt.savefig(f'{pdf_dir}/keywords_search_weekday_sum.pdf', bbox_inches="tight")
+plt.clf()
+
+historiy_sum_weekday_plt.loc[:, 'avg'].plot(kind='bar', rot=45, color='#575757')
+plt.xlabel('Week Day')
+plt.ylabel('Count of Searcing by Chrome')
+plt.savefig(f'{fig_dir}/keywords_search_weekday_avg.png', bbox_inches="tight")
+plt.savefig(f'{pdf_dir}/keywords_search_weekday_avg.pdf', bbox_inches="tight")
+plt.clf()
