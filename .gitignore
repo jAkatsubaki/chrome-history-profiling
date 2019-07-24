@@ -1,0 +1,11 @@
+__pycache__/
+csv/
+pdf/
+fig/
+
+*.py[cod]
+*$py.class
+
+*.png
+*.pdf
+*.csv
